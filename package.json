@@ -2,7 +2,7 @@
   "name": "md-editor-plus",
   "displayName": "MD Editor Plus (Remote)",
   "description": "Notion-style block editor for Markdown with Remote/Codelab live-reload support and Cmd+F search. Fork of aviranrevach/md-editor-plus.",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "publisher": "jzzhang",
   "license": "MIT",
   "author": {
