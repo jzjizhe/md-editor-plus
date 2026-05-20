@@ -927,57 +927,75 @@ function init(): void {
   });
 }
 
-// ─── Cmd+F / Ctrl+F Search (via TipTap SearchAndReplace extension) ──────────
+// ─── Cmd+F / Ctrl+F Search & Replace (via TipTap SearchAndReplace extension) ─
 function initSearch(): void {
-  // Create search bar UI
-  const searchBar = document.createElement('div');
-  searchBar.id = 'search-bar';
-  searchBar.className = 'search-bar hidden';
-  searchBar.innerHTML = `
-    <input type="text" id="search-input" placeholder="Find…" autocomplete="off" spellcheck="false" />
-    <span class="search-count" id="search-count"></span>
-    <button class="search-nav-btn" id="search-prev" title="Previous (Shift+Enter)">&#8593;</button>
-    <button class="search-nav-btn" id="search-next" title="Next (Enter)">&#8595;</button>
-    <button class="search-close-btn" id="search-close" title="Close (Escape)">&times;</button>
+  // Create search panel UI (VS Code style: two rows)
+  const searchPanel = document.createElement('div');
+  searchPanel.id = 'search-panel';
+  searchPanel.className = 'search-panel hidden';
+  searchPanel.innerHTML = `
+    <div class="search-row">
+      <input type="text" id="search-input" placeholder="Find" autocomplete="off" spellcheck="false" />
+      <span class="search-count" id="search-count"></span>
+      <button class="search-toggle-btn" id="search-case" title="Match Case (Alt+C)">Aa</button>
+      <button class="search-toggle-btn" id="search-regex" title="Use Regular Expression (Alt+R)">.*</button>
+      <button class="search-nav-btn" id="search-prev" title="Previous Match (Shift+Enter)">&#8593;</button>
+      <button class="search-nav-btn" id="search-next" title="Next Match (Enter)">&#8595;</button>
+      <button class="search-close-btn" id="search-close" title="Close (Escape)">&times;</button>
+    </div>
+    <div class="search-row replace-row hidden" id="replace-row">
+      <input type="text" id="replace-input" placeholder="Replace" autocomplete="off" spellcheck="false" />
+      <button class="search-action-btn" id="replace-btn" title="Replace (⌘⇧1)">Replace</button>
+      <button class="search-action-btn" id="replace-all-btn" title="Replace All (⌘⇧Enter)">All</button>
+    </div>
+    <button class="search-expand-btn" id="search-expand" title="Toggle Replace">&#9654;</button>
   `;
-  document.body.appendChild(searchBar);
+  document.body.appendChild(searchPanel);
 
-  // Inject search bar + result highlight styles
+  // Inject styles
   const searchStyle = document.createElement('style');
   searchStyle.textContent = `
-    .search-bar {
+    .search-panel {
       position: fixed;
       top: 48px;
       right: 16px;
       z-index: 9999;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      padding: 6px 10px;
+      padding: 8px 10px;
       border-radius: 8px;
       background: var(--bg-elevated, #fff);
       border: 1px solid var(--border-color, #e0e0e0);
-      box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.14);
       font-size: 13px;
-      transition: opacity 0.15s, transform 0.15s;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
     }
-    .search-bar.hidden { display: none; }
-    #search-input {
+    .search-panel.hidden { display: none; }
+    .search-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .replace-row.hidden { display: none; }
+    .search-panel input[type="text"] {
       border: 1px solid var(--border-color, #ddd);
       border-radius: 4px;
       padding: 4px 8px;
       font-size: 13px;
-      width: 200px;
+      width: 180px;
       outline: none;
       background: var(--bg-primary, #fff);
       color: var(--text-primary, #333);
     }
-    #search-input:focus { border-color: var(--accent, #2383e2); }
+    .search-panel input[type="text"]:focus {
+      border-color: var(--accent, #2383e2);
+    }
     .search-count {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--text-secondary, #888);
-      min-width: 40px;
+      min-width: 50px;
       text-align: center;
+      white-space: nowrap;
     }
     .search-nav-btn, .search-close-btn {
       border: none;
@@ -992,27 +1010,92 @@ function initSearch(): void {
     .search-nav-btn:hover, .search-close-btn:hover {
       background: var(--bg-hover, rgba(0,0,0,0.06));
     }
+    .search-toggle-btn {
+      border: 1px solid transparent;
+      background: none;
+      cursor: pointer;
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary, #888);
+      line-height: 1.2;
+      font-family: ui-monospace, monospace;
+    }
+    .search-toggle-btn:hover {
+      background: var(--bg-hover, rgba(0,0,0,0.06));
+    }
+    .search-toggle-btn.active {
+      color: var(--accent, #2383e2);
+      border-color: var(--accent, #2383e2);
+      background: rgba(35, 131, 226, 0.08);
+    }
+    .search-action-btn {
+      border: 1px solid var(--border-color, #ddd);
+      background: var(--bg-primary, #fff);
+      cursor: pointer;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: var(--text-primary, #444);
+      white-space: nowrap;
+    }
+    .search-action-btn:hover {
+      background: var(--bg-hover, rgba(0,0,0,0.06));
+      border-color: var(--accent, #2383e2);
+    }
+    .search-expand-btn {
+      position: absolute;
+      left: -18px;
+      top: 8px;
+      border: none;
+      background: none;
+      cursor: pointer;
+      font-size: 10px;
+      color: var(--text-secondary, #888);
+      padding: 4px;
+      border-radius: 4px;
+      transition: transform 0.15s;
+    }
+    .search-expand-btn:hover { background: var(--bg-hover, rgba(0,0,0,0.06)); }
+    .search-expand-btn.expanded { transform: rotate(90deg); }
     .search-result {
-      background-color: rgba(255, 223, 0, 0.35);
+      background-color: rgba(255, 223, 0, 0.4);
       border-radius: 2px;
     }
     .search-result-current {
-      background-color: rgba(245, 108, 40, 0.55);
+      background-color: rgba(234, 92, 0, 0.45);
       border-radius: 2px;
-      outline: 2px solid rgba(245, 108, 40, 0.7);
+      outline: 2px solid rgba(234, 92, 0, 0.65);
     }
   `;
   document.head.appendChild(searchStyle);
 
   const input = document.getElementById('search-input') as HTMLInputElement;
+  const replaceInput = document.getElementById('replace-input') as HTMLInputElement;
   const countEl = document.getElementById('search-count') as HTMLElement;
   const prevBtn = document.getElementById('search-prev') as HTMLElement;
   const nextBtn = document.getElementById('search-next') as HTMLElement;
   const closeBtn = document.getElementById('search-close') as HTMLElement;
+  const caseBtn = document.getElementById('search-case') as HTMLElement;
+  const regexBtn = document.getElementById('search-regex') as HTMLElement;
+  const replaceBtn = document.getElementById('replace-btn') as HTMLElement;
+  const replaceAllBtn = document.getElementById('replace-all-btn') as HTMLElement;
+  const replaceRow = document.getElementById('replace-row') as HTMLElement;
+  const expandBtn = document.getElementById('search-expand') as HTMLElement;
 
-  // We need to wait for the editor to be ready — poll for it.
+  let caseSensitive = false;
+  let useRegex = false;
+  let replaceVisible = false;
+
   function getEditor(): any {
     return (window as any).__mdEditorPlusInstance;
+  }
+
+  function triggerUpdate(): void {
+    const editor = getEditor();
+    if (!editor) return;
+    editor.view.dispatch(editor.state.tr);
   }
 
   function updateCount(): void {
@@ -1022,7 +1105,7 @@ function initSearch(): void {
     if (!results || results.length === 0) {
       countEl.textContent = input.value ? 'No results' : '';
     } else {
-      countEl.textContent = `${resultIndex + 1}/${results.length}`;
+      countEl.textContent = `${resultIndex + 1} of ${results.length}`;
     }
   }
 
@@ -1032,7 +1115,6 @@ function initSearch(): void {
     const { results, resultIndex } = editor.storage.searchAndReplace;
     if (results && results[resultIndex]) {
       const { from } = results[resultIndex];
-      // Use editor's scrollIntoView to bring the match into view
       editor.commands.setTextSelection(from);
       const domAtPos = editor.view.domAtPos(from);
       if (domAtPos && domAtPos.node) {
@@ -1046,26 +1128,58 @@ function initSearch(): void {
     const editor = getEditor();
     if (!editor) return;
     editor.commands.setSearchTerm(term);
-    // Force a transaction to trigger the plugin
-    editor.view.dispatch(editor.state.tr);
+    triggerUpdate();
     setTimeout(updateCount, 20);
   }
 
   function openSearch(): void {
-    searchBar.classList.remove('hidden');
+    searchPanel.classList.remove('hidden');
     input.focus();
     input.select();
     if (input.value) doSearch(input.value);
   }
 
   function closeSearch(): void {
-    searchBar.classList.add('hidden');
+    searchPanel.classList.add('hidden');
     doSearch('');
     input.value = '';
+    replaceInput.value = '';
     countEl.textContent = '';
   }
 
-  // Debounce search while typing
+  function toggleReplace(): void {
+    replaceVisible = !replaceVisible;
+    replaceRow.classList.toggle('hidden', !replaceVisible);
+    expandBtn.classList.toggle('expanded', replaceVisible);
+    if (replaceVisible) replaceInput.focus();
+  }
+
+  // ── Toggle buttons ──
+  caseBtn.addEventListener('click', () => {
+    caseSensitive = !caseSensitive;
+    caseBtn.classList.toggle('active', caseSensitive);
+    const editor = getEditor();
+    if (!editor) return;
+    editor.commands.setCaseSensitive(caseSensitive);
+    editor.commands.resetIndex();
+    triggerUpdate();
+    setTimeout(() => { updateCount(); scrollToCurrentResult(); }, 20);
+  });
+
+  regexBtn.addEventListener('click', () => {
+    useRegex = !useRegex;
+    regexBtn.classList.toggle('active', useRegex);
+    const editor = getEditor();
+    if (!editor) return;
+    editor.commands.setUseRegex(useRegex);
+    editor.commands.resetIndex();
+    triggerUpdate();
+    setTimeout(() => { updateCount(); scrollToCurrentResult(); }, 20);
+  });
+
+  expandBtn.addEventListener('click', toggleReplace);
+
+  // ── Search input ──
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
   input.addEventListener('input', () => {
     if (searchTimer) clearTimeout(searchTimer);
@@ -1088,7 +1202,7 @@ function initSearch(): void {
       } else {
         editor.commands.nextSearchResult();
       }
-      editor.view.dispatch(editor.state.tr);
+      triggerUpdate();
       setTimeout(() => { updateCount(); scrollToCurrentResult(); }, 20);
     }
     if (e.key === 'Escape') {
@@ -1097,32 +1211,89 @@ function initSearch(): void {
     }
   });
 
+  // ── Replace input ──
+  replaceInput.addEventListener('input', () => {
+    const editor = getEditor();
+    if (!editor) return;
+    editor.commands.setReplaceTerm(replaceInput.value);
+  });
+
+  replaceInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeSearch();
+    }
+  });
+
+  // ── Nav & Replace buttons ──
   prevBtn.addEventListener('click', () => {
     const editor = getEditor();
     if (!editor) return;
     editor.commands.previousSearchResult();
-    editor.view.dispatch(editor.state.tr);
+    triggerUpdate();
     setTimeout(() => { updateCount(); scrollToCurrentResult(); }, 20);
   });
   nextBtn.addEventListener('click', () => {
     const editor = getEditor();
     if (!editor) return;
     editor.commands.nextSearchResult();
-    editor.view.dispatch(editor.state.tr);
+    triggerUpdate();
     setTimeout(() => { updateCount(); scrollToCurrentResult(); }, 20);
   });
+
+  replaceBtn.addEventListener('click', () => {
+    const editor = getEditor();
+    if (!editor) return;
+    editor.commands.setReplaceTerm(replaceInput.value);
+    editor.commands.replace();
+    setTimeout(() => {
+      triggerUpdate();
+      setTimeout(() => { updateCount(); scrollToCurrentResult(); }, 20);
+    }, 10);
+  });
+
+  replaceAllBtn.addEventListener('click', () => {
+    const editor = getEditor();
+    if (!editor) return;
+    editor.commands.setReplaceTerm(replaceInput.value);
+    editor.commands.replaceAll();
+    setTimeout(() => {
+      triggerUpdate();
+      setTimeout(updateCount, 20);
+    }, 10);
+  });
+
   closeBtn.addEventListener('click', closeSearch);
 
-  // Global Cmd+F / Ctrl+F handler
+  // ── Global keyboard shortcuts ──
   document.addEventListener('keydown', (e) => {
+    // Cmd+F / Ctrl+F → open search
     if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
       e.preventDefault();
       e.stopPropagation();
       openSearch();
     }
-    if (e.key === 'Escape' && !searchBar.classList.contains('hidden')) {
+    // Cmd+H / Ctrl+H → open search with replace visible
+    if ((e.metaKey || e.ctrlKey) && e.key === 'h') {
+      e.preventDefault();
+      e.stopPropagation();
+      openSearch();
+      if (!replaceVisible) toggleReplace();
+    }
+    // Escape → close
+    if (e.key === 'Escape' && !searchPanel.classList.contains('hidden')) {
       e.preventDefault();
       closeSearch();
+    }
+    // Alt+C → toggle case sensitive
+    if (e.altKey && e.key === 'c' && !searchPanel.classList.contains('hidden')) {
+      e.preventDefault();
+      caseBtn.click();
+    }
+    // Alt+R → toggle regex
+    if (e.altKey && e.key === 'r' && !searchPanel.classList.contains('hidden')) {
+      e.preventDefault();
+      regexBtn.click();
     }
   });
 }

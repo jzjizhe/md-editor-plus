@@ -1,29 +1,32 @@
 // MIT License
 // Copyright (c) 2023 - 2024 Jeet Mandaliya (Github Username: sereneinserenade)
-// Adapted for md-editor-plus
+// Adapted for md-editor-plus — full command set with replace, regex, case-sensitive
 
-import type { Range } from "@tiptap/core";
+import type { Dispatch, Range } from "@tiptap/core";
 import { Extension } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import {
   type EditorState,
   Plugin,
   PluginKey,
+  type Transaction,
 } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
 export interface SearchAndReplaceOptions {
   searchResultClass: string;
   currentResultClass: string;
-  disableRegex: boolean;
 }
 
 export interface SearchAndReplaceStorage {
   searchTerm: string;
+  replaceTerm: string;
   results: Range[];
   lastSearchTerm: string;
   caseSensitive: boolean;
   lastCaseSensitive: boolean;
+  useRegex: boolean;
+  lastUseRegex: boolean;
   resultIndex: number;
   lastResultIndex: number;
 }
@@ -32,10 +35,14 @@ declare module "@tiptap/core" {
   interface Commands<ReturnType> {
     searchAndReplace: {
       setSearchTerm: (searchTerm: string) => ReturnType;
+      setReplaceTerm: (replaceTerm: string) => ReturnType;
       setCaseSensitive: (caseSensitive: boolean) => ReturnType;
+      setUseRegex: (useRegex: boolean) => ReturnType;
       resetIndex: () => ReturnType;
       nextSearchResult: () => ReturnType;
       previousSearchResult: () => ReturnType;
+      replace: () => ReturnType;
+      replaceAll: () => ReturnType;
     };
   }
 }
@@ -47,11 +54,11 @@ interface TextNodesWithPosition {
 
 const getRegex = (
   s: string,
-  disableRegex: boolean,
+  useRegex: boolean,
   caseSensitive: boolean,
 ): RegExp => {
   return RegExp(
-    disableRegex ? s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : s,
+    useRegex ? s : s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
     caseSensitive ? "gu" : "gui",
   );
 };
@@ -123,6 +130,53 @@ function processSearches(
   };
 }
 
+const replaceCurrent = (
+  replaceTerm: string,
+  results: Range[],
+  resultIndex: number,
+  { state, dispatch }: { state: EditorState; dispatch: Dispatch },
+) => {
+  const result = results[resultIndex];
+  if (!result) return;
+  const { from, to } = result;
+  if (dispatch) dispatch(state.tr.insertText(replaceTerm, from, to));
+};
+
+const rebaseNextResult = (
+  replaceTerm: string,
+  index: number,
+  lastOffset: number,
+  results: Range[],
+): [number, Range[]] | null => {
+  const nextIndex = index + 1;
+  if (!results[nextIndex]) return null;
+  const { from: currentFrom, to: currentTo } = results[index];
+  const offset = currentTo - currentFrom - replaceTerm.length + lastOffset;
+  const { from, to } = results[nextIndex];
+  results[nextIndex] = { to: to - offset, from: from - offset };
+  return [offset, results];
+};
+
+const replaceAllFn = (
+  replaceTerm: string,
+  results: Range[],
+  { tr, dispatch }: { tr: Transaction; dispatch: Dispatch },
+) => {
+  let offset = 0;
+  let resultsCopy = results.slice();
+  if (!resultsCopy.length) return;
+
+  for (let i = 0; i < resultsCopy.length; i += 1) {
+    const { from, to } = resultsCopy[i];
+    tr.insertText(replaceTerm, from, to);
+    const rebaseResponse = rebaseNextResult(replaceTerm, i, offset, resultsCopy);
+    if (!rebaseResponse) continue;
+    offset = rebaseResponse[0];
+    resultsCopy = rebaseResponse[1];
+  }
+  dispatch(tr);
+};
+
 export const searchAndReplacePluginKey = new PluginKey(
   "searchAndReplacePlugin",
 );
@@ -137,17 +191,19 @@ export const SearchAndReplace = Extension.create<
     return {
       searchResultClass: "search-result",
       currentResultClass: "search-result-current",
-      disableRegex: true,
     };
   },
 
   addStorage() {
     return {
       searchTerm: "",
+      replaceTerm: "",
       results: [],
       lastSearchTerm: "",
       caseSensitive: false,
       lastCaseSensitive: false,
+      useRegex: false,
+      lastUseRegex: false,
       resultIndex: 0,
       lastResultIndex: 0,
     };
@@ -161,10 +217,22 @@ export const SearchAndReplace = Extension.create<
           editor.storage.searchAndReplace.searchTerm = searchTerm;
           return false;
         },
+      setReplaceTerm:
+        (replaceTerm: string) =>
+        ({ editor }) => {
+          editor.storage.searchAndReplace.replaceTerm = replaceTerm;
+          return false;
+        },
       setCaseSensitive:
         (caseSensitive: boolean) =>
         ({ editor }) => {
           editor.storage.searchAndReplace.caseSensitive = caseSensitive;
+          return false;
+        },
+      setUseRegex:
+        (useRegex: boolean) =>
+        ({ editor }) => {
+          editor.storage.searchAndReplace.useRegex = useRegex;
           return false;
         },
       resetIndex:
@@ -197,19 +265,36 @@ export const SearchAndReplace = Extension.create<
           }
           return false;
         },
+      replace:
+        () =>
+        ({ editor, state, dispatch }) => {
+          const { replaceTerm, results, resultIndex } =
+            editor.storage.searchAndReplace;
+          replaceCurrent(replaceTerm, results, resultIndex, { state, dispatch });
+          return false;
+        },
+      replaceAll:
+        () =>
+        ({ editor, tr, dispatch }) => {
+          const { replaceTerm, results } = editor.storage.searchAndReplace;
+          replaceAllFn(replaceTerm, results, { tr, dispatch });
+          return false;
+        },
     };
   },
 
   addProseMirrorPlugins() {
     const editor = this.editor;
-    const { searchResultClass, currentResultClass, disableRegex } =
-      this.options;
+    const { searchResultClass, currentResultClass } = this.options;
 
     const setLastSearchTerm = (t: string) => {
       editor.storage.searchAndReplace.lastSearchTerm = t;
     };
     const setLastCaseSensitive = (t: boolean) => {
       editor.storage.searchAndReplace.lastCaseSensitive = t;
+    };
+    const setLastUseRegex = (t: boolean) => {
+      editor.storage.searchAndReplace.lastUseRegex = t;
     };
     const setLastResultIndex = (t: number) => {
       editor.storage.searchAndReplace.lastResultIndex = t;
@@ -226,6 +311,8 @@ export const SearchAndReplace = Extension.create<
               lastSearchTerm,
               caseSensitive,
               lastCaseSensitive,
+              useRegex,
+              lastUseRegex,
               resultIndex,
               lastResultIndex,
             } = editor.storage.searchAndReplace;
@@ -234,12 +321,14 @@ export const SearchAndReplace = Extension.create<
               !docChanged &&
               lastSearchTerm === searchTerm &&
               lastCaseSensitive === caseSensitive &&
+              lastUseRegex === useRegex &&
               lastResultIndex === resultIndex
             )
               return oldState;
 
             setLastSearchTerm(searchTerm);
             setLastCaseSensitive(caseSensitive);
+            setLastUseRegex(useRegex);
             setLastResultIndex(resultIndex);
 
             if (!searchTerm) {
@@ -247,9 +336,18 @@ export const SearchAndReplace = Extension.create<
               return DecorationSet.empty;
             }
 
+            let regex: RegExp;
+            try {
+              regex = getRegex(searchTerm, useRegex, caseSensitive);
+            } catch {
+              // Invalid regex — clear results silently
+              editor.storage.searchAndReplace.results = [];
+              return DecorationSet.empty;
+            }
+
             const { decorationsToReturn, results } = processSearches(
               doc,
-              getRegex(searchTerm, disableRegex, caseSensitive),
+              regex,
               searchResultClass,
               currentResultClass,
               resultIndex,
