@@ -824,6 +824,21 @@ function init(): void {
     refreshDefaultsButtons();
   });
 
+  // Apply deferred external updates when the editor loses focus.
+  document.addEventListener('focusout', () => {
+    if (pendingExternalMarkdown === null) return;
+    setTimeout(() => {
+      const editorContainer = document.querySelector('.ProseMirror');
+      const stillFocused = editorContainer && editorContainer.contains(document.activeElement);
+      if (!stillFocused && pendingExternalMarkdown !== null) {
+        currentMarkdown = pendingExternalMarkdown;
+        updateContent(pendingExternalMarkdown);
+        if (sourceMode && sourceEditorReady) updateSourceContent(pendingExternalMarkdown);
+        pendingExternalMarkdown = null;
+      }
+    }, 100);
+  });
+
   window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
     const msg = event.data;
 
@@ -896,10 +911,249 @@ function init(): void {
       pendingExternalMarkdown = null;
       hideConflictBanner();
       currentMarkdown = msg.markdown;
-      updateContent(msg.markdown);
+
+      // Focus-aware update: defer setValue when editor has focus to prevent
+      // cursor jumping during active editing (important for Remote polling).
+      const editorContainer = document.querySelector('.ProseMirror');
+      const hasFocus = editorContainer && editorContainer.contains(document.activeElement);
+      if (hasFocus && msg.source === 'external') {
+        pendingExternalMarkdown = msg.markdown;
+      } else {
+        updateContent(msg.markdown);
+      }
       if (sourceMode && sourceEditorReady) updateSourceContent(msg.markdown);
     }
   });
 }
 
-document.addEventListener('DOMContentLoaded', init);
+// ─── Cmd+F / Ctrl+F Search ─────────────────────────────────────────────────
+function initSearch(): void {
+  // Create search bar UI
+  const searchBar = document.createElement('div');
+  searchBar.id = 'search-bar';
+  searchBar.className = 'search-bar hidden';
+  searchBar.innerHTML = `
+    <input type="text" id="search-input" placeholder="Find…" autocomplete="off" spellcheck="false" />
+    <span class="search-count" id="search-count"></span>
+    <button class="search-nav-btn" id="search-prev" title="Previous (Shift+Enter)">&#8593;</button>
+    <button class="search-nav-btn" id="search-next" title="Next (Enter)">&#8595;</button>
+    <button class="search-close-btn" id="search-close" title="Close (Escape)">&times;</button>
+  `;
+  document.body.appendChild(searchBar);
+
+  // Inject search bar styles
+  const searchStyle = document.createElement('style');
+  searchStyle.textContent = `
+    .search-bar {
+      position: fixed;
+      top: 48px;
+      right: 16px;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: var(--bg-elevated, #fff);
+      border: 1px solid var(--border-color, #e0e0e0);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+      font-size: 13px;
+      transition: opacity 0.15s, transform 0.15s;
+    }
+    .search-bar.hidden {
+      display: none;
+    }
+    #search-input {
+      border: 1px solid var(--border-color, #ddd);
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 13px;
+      width: 200px;
+      outline: none;
+      background: var(--bg-primary, #fff);
+      color: var(--text-primary, #333);
+    }
+    #search-input:focus {
+      border-color: var(--accent, #2383e2);
+    }
+    .search-count {
+      font-size: 12px;
+      color: var(--text-secondary, #888);
+      min-width: 40px;
+      text-align: center;
+    }
+    .search-nav-btn, .search-close-btn {
+      border: none;
+      background: none;
+      cursor: pointer;
+      padding: 4px 6px;
+      border-radius: 4px;
+      font-size: 14px;
+      color: var(--text-secondary, #666);
+      line-height: 1;
+    }
+    .search-nav-btn:hover, .search-close-btn:hover {
+      background: var(--bg-hover, rgba(0,0,0,0.06));
+    }
+    .search-highlight {
+      background-color: rgba(255, 213, 0, 0.4);
+      border-radius: 2px;
+    }
+    .search-highlight-current {
+      background-color: rgba(255, 150, 0, 0.6);
+      border-radius: 2px;
+    }
+  `;
+  document.head.appendChild(searchStyle);
+
+  const input = document.getElementById('search-input') as HTMLInputElement;
+  const countEl = document.getElementById('search-count') as HTMLElement;
+  const prevBtn = document.getElementById('search-prev') as HTMLElement;
+  const nextBtn = document.getElementById('search-next') as HTMLElement;
+  const closeBtn = document.getElementById('search-close') as HTMLElement;
+
+  let highlights: HTMLElement[] = [];
+  let currentIndex = -1;
+  let searchTerm = '';
+
+  function clearHighlights(): void {
+    highlights.forEach(el => {
+      const parent = el.parentNode;
+      if (parent) {
+        parent.replaceChild(document.createTextNode(el.textContent || ''), el);
+        parent.normalize();
+      }
+    });
+    highlights = [];
+    currentIndex = -1;
+    countEl.textContent = '';
+  }
+
+  function performSearch(term: string): void {
+    clearHighlights();
+    searchTerm = term;
+    if (!term) return;
+
+    const container = document.querySelector('.ProseMirror') || document.getElementById('editor');
+    if (!container) return;
+
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+    const textNodes: Text[] = [];
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      textNodes.push(node as Text);
+    }
+
+    const termLower = term.toLowerCase();
+    for (const textNode of textNodes) {
+      const text = textNode.textContent || '';
+      const textLower = text.toLowerCase();
+      let startIdx = 0;
+      let idx: number;
+      const parts: Array<{ start: number; end: number }> = [];
+
+      while ((idx = textLower.indexOf(termLower, startIdx)) !== -1) {
+        parts.push({ start: idx, end: idx + term.length });
+        startIdx = idx + 1;
+      }
+
+      if (parts.length === 0) continue;
+
+      // Split text node into parts with highlights
+      const parent = textNode.parentNode;
+      if (!parent) continue;
+
+      const frag = document.createDocumentFragment();
+      let lastEnd = 0;
+      for (const { start, end } of parts) {
+        if (start > lastEnd) {
+          frag.appendChild(document.createTextNode(text.slice(lastEnd, start)));
+        }
+        const mark = document.createElement('mark');
+        mark.className = 'search-highlight';
+        mark.textContent = text.slice(start, end);
+        highlights.push(mark);
+        frag.appendChild(mark);
+        lastEnd = end;
+      }
+      if (lastEnd < text.length) {
+        frag.appendChild(document.createTextNode(text.slice(lastEnd)));
+      }
+      parent.replaceChild(frag, textNode);
+    }
+
+    if (highlights.length > 0) {
+      currentIndex = 0;
+      highlights[0].classList.add('search-highlight-current');
+      highlights[0].scrollIntoView({ block: 'center', behavior: 'smooth' });
+      countEl.textContent = `1/${highlights.length}`;
+    } else {
+      countEl.textContent = '0 results';
+    }
+  }
+
+  function goToMatch(direction: 1 | -1): void {
+    if (highlights.length === 0) return;
+    highlights[currentIndex]?.classList.remove('search-highlight-current');
+    currentIndex = (currentIndex + direction + highlights.length) % highlights.length;
+    highlights[currentIndex].classList.add('search-highlight-current');
+    highlights[currentIndex].scrollIntoView({ block: 'center', behavior: 'smooth' });
+    countEl.textContent = `${currentIndex + 1}/${highlights.length}`;
+  }
+
+  function openSearch(): void {
+    searchBar.classList.remove('hidden');
+    input.focus();
+    input.select();
+  }
+
+  function closeSearch(): void {
+    searchBar.classList.add('hidden');
+    clearHighlights();
+    searchTerm = '';
+    input.value = '';
+  }
+
+  // Debounce search while typing
+  let searchTimer: ReturnType<typeof setTimeout> | null = null;
+  input.addEventListener('input', () => {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      performSearch(input.value);
+    }, 150);
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (e.shiftKey) goToMatch(-1);
+      else goToMatch(1);
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeSearch();
+    }
+  });
+
+  prevBtn.addEventListener('click', () => goToMatch(-1));
+  nextBtn.addEventListener('click', () => goToMatch(1));
+  closeBtn.addEventListener('click', closeSearch);
+
+  // Global Cmd+F / Ctrl+F handler
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+      e.preventDefault();
+      e.stopPropagation();
+      openSearch();
+    }
+    if (e.key === 'Escape' && !searchBar.classList.contains('hidden')) {
+      e.preventDefault();
+      closeSearch();
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  init();
+  initSearch();
+});

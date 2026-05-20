@@ -134,6 +134,30 @@ export class MdEditorPlusProvider implements vscode.CustomTextEditorProvider {
       });
     });
 
+    // ─── Polling-based file change detection for Remote environments ────────
+    // In Remote/Codelab environments, onDidChangeTextDocument may not fire when
+    // external tools (e.g. CLI) modify the file. We poll the file system directly
+    // using vscode.workspace.fs.readFile which works with virtual filesystems.
+    let lastEditTime = 0;
+    let lastKnownContent = document.getText();
+    const pollInterval = setInterval(async () => {
+      // Skip polling if user edited recently (2s guard)
+      if (Date.now() - lastEditTime < 2000) return;
+      if (this._isApplyingEdit) return;
+      try {
+        const raw = await vscode.workspace.fs.readFile(document.uri);
+        const content = Buffer.from(raw).toString('utf8');
+        if (content !== lastKnownContent) {
+          lastKnownContent = content;
+          webviewPanel.webview.postMessage({
+            type: 'update',
+            markdown: content,
+            source: 'external',
+          });
+        }
+      } catch { /* file may be temporarily unavailable */ }
+    }, 1000);
+
     webviewPanel.webview.onDidReceiveMessage(async (msg: {
       type: string;
       markdown?: string;
@@ -150,6 +174,8 @@ export class MdEditorPlusProvider implements vscode.CustomTextEditorProvider {
       };
     }) => {
       if (msg.type === 'edit' && msg.markdown !== undefined) {
+        lastEditTime = Date.now();
+        lastKnownContent = msg.markdown;
         await this._applyEdit(document, msg.markdown);
       }
       if (msg.type === 'saveDefaults' && msg.defaults) {
@@ -326,6 +352,7 @@ export class MdEditorPlusProvider implements vscode.CustomTextEditorProvider {
 
     webviewPanel.onDidDispose(() => {
       onDocChange.dispose();
+      clearInterval(pollInterval);
     });
 
     sendInit();
