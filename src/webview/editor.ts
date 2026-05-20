@@ -24,6 +24,7 @@ import BlockOutline from './extensions/outline';
 import { createBubbleMenu } from './bubbleMenu';
 import { createBlockHandle } from './blockHandle';
 import { splitFrontmatter, frontmatterInfo } from './frontmatter';
+import { SearchAndReplace } from './extensions/searchAndReplace';
 
 const lowlight = createLowlight(common);
 
@@ -118,6 +119,10 @@ export function createEditor(
       BlockDirection,
       BlockOutline,
       GlobalDragHandle.configure({ dragHandleWidth: 48 }),
+      SearchAndReplace.configure({
+        searchResultClass: 'search-result',
+        currentResultClass: 'search-result-current',
+      }),
     ],
     editorProps: {
       attributes: { spellcheck: 'true' },

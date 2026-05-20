@@ -855,6 +855,7 @@ function init(): void {
         if (sourceMode && sourceEditorReady) updateSourceContent(markdown);
         vscode.postMessage({ type: 'edit', markdown });
       });
+      (window as any).__mdEditorPlusInstance = editorInstance;
       editorReady = true;
 
       try {
@@ -926,7 +927,7 @@ function init(): void {
   });
 }
 
-// ─── Cmd+F / Ctrl+F Search ─────────────────────────────────────────────────
+// ─── Cmd+F / Ctrl+F Search (via TipTap SearchAndReplace extension) ──────────
 function initSearch(): void {
   // Create search bar UI
   const searchBar = document.createElement('div');
@@ -941,7 +942,7 @@ function initSearch(): void {
   `;
   document.body.appendChild(searchBar);
 
-  // Inject search bar styles
+  // Inject search bar + result highlight styles
   const searchStyle = document.createElement('style');
   searchStyle.textContent = `
     .search-bar {
@@ -960,9 +961,7 @@ function initSearch(): void {
       font-size: 13px;
       transition: opacity 0.15s, transform 0.15s;
     }
-    .search-bar.hidden {
-      display: none;
-    }
+    .search-bar.hidden { display: none; }
     #search-input {
       border: 1px solid var(--border-color, #ddd);
       border-radius: 4px;
@@ -973,9 +972,7 @@ function initSearch(): void {
       background: var(--bg-primary, #fff);
       color: var(--text-primary, #333);
     }
-    #search-input:focus {
-      border-color: var(--accent, #2383e2);
-    }
+    #search-input:focus { border-color: var(--accent, #2383e2); }
     .search-count {
       font-size: 12px;
       color: var(--text-secondary, #888);
@@ -995,13 +992,14 @@ function initSearch(): void {
     .search-nav-btn:hover, .search-close-btn:hover {
       background: var(--bg-hover, rgba(0,0,0,0.06));
     }
-    .search-highlight {
-      background-color: rgba(255, 213, 0, 0.4);
+    .search-result {
+      background-color: rgba(255, 223, 0, 0.35);
       border-radius: 2px;
     }
-    .search-highlight-current {
-      background-color: rgba(255, 150, 0, 0.6);
+    .search-result-current {
+      background-color: rgba(245, 108, 40, 0.55);
       border-radius: 2px;
+      outline: 2px solid rgba(245, 108, 40, 0.7);
     }
   `;
   document.head.appendChild(searchStyle);
@@ -1012,106 +1010,59 @@ function initSearch(): void {
   const nextBtn = document.getElementById('search-next') as HTMLElement;
   const closeBtn = document.getElementById('search-close') as HTMLElement;
 
-  let highlights: HTMLElement[] = [];
-  let currentIndex = -1;
-  let searchTerm = '';
-
-  function clearHighlights(): void {
-    highlights.forEach(el => {
-      const parent = el.parentNode;
-      if (parent) {
-        parent.replaceChild(document.createTextNode(el.textContent || ''), el);
-        parent.normalize();
-      }
-    });
-    highlights = [];
-    currentIndex = -1;
-    countEl.textContent = '';
+  // We need to wait for the editor to be ready — poll for it.
+  function getEditor(): any {
+    return (window as any).__mdEditorPlusInstance;
   }
 
-  function performSearch(term: string): void {
-    clearHighlights();
-    searchTerm = term;
-    if (!term) return;
-
-    const container = document.querySelector('.ProseMirror') || document.getElementById('editor');
-    if (!container) return;
-
-    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
-    const textNodes: Text[] = [];
-    let node: Node | null;
-    while ((node = walker.nextNode())) {
-      textNodes.push(node as Text);
-    }
-
-    const termLower = term.toLowerCase();
-    for (const textNode of textNodes) {
-      const text = textNode.textContent || '';
-      const textLower = text.toLowerCase();
-      let startIdx = 0;
-      let idx: number;
-      const parts: Array<{ start: number; end: number }> = [];
-
-      while ((idx = textLower.indexOf(termLower, startIdx)) !== -1) {
-        parts.push({ start: idx, end: idx + term.length });
-        startIdx = idx + 1;
-      }
-
-      if (parts.length === 0) continue;
-
-      // Split text node into parts with highlights
-      const parent = textNode.parentNode;
-      if (!parent) continue;
-
-      const frag = document.createDocumentFragment();
-      let lastEnd = 0;
-      for (const { start, end } of parts) {
-        if (start > lastEnd) {
-          frag.appendChild(document.createTextNode(text.slice(lastEnd, start)));
-        }
-        const mark = document.createElement('mark');
-        mark.className = 'search-highlight';
-        mark.textContent = text.slice(start, end);
-        highlights.push(mark);
-        frag.appendChild(mark);
-        lastEnd = end;
-      }
-      if (lastEnd < text.length) {
-        frag.appendChild(document.createTextNode(text.slice(lastEnd)));
-      }
-      parent.replaceChild(frag, textNode);
-    }
-
-    if (highlights.length > 0) {
-      currentIndex = 0;
-      highlights[0].classList.add('search-highlight-current');
-      highlights[0].scrollIntoView({ block: 'center', behavior: 'smooth' });
-      countEl.textContent = `1/${highlights.length}`;
+  function updateCount(): void {
+    const editor = getEditor();
+    if (!editor) { countEl.textContent = ''; return; }
+    const { results, resultIndex } = editor.storage.searchAndReplace;
+    if (!results || results.length === 0) {
+      countEl.textContent = input.value ? 'No results' : '';
     } else {
-      countEl.textContent = '0 results';
+      countEl.textContent = `${resultIndex + 1}/${results.length}`;
     }
   }
 
-  function goToMatch(direction: 1 | -1): void {
-    if (highlights.length === 0) return;
-    highlights[currentIndex]?.classList.remove('search-highlight-current');
-    currentIndex = (currentIndex + direction + highlights.length) % highlights.length;
-    highlights[currentIndex].classList.add('search-highlight-current');
-    highlights[currentIndex].scrollIntoView({ block: 'center', behavior: 'smooth' });
-    countEl.textContent = `${currentIndex + 1}/${highlights.length}`;
+  function scrollToCurrentResult(): void {
+    const editor = getEditor();
+    if (!editor) return;
+    const { results, resultIndex } = editor.storage.searchAndReplace;
+    if (results && results[resultIndex]) {
+      const { from } = results[resultIndex];
+      // Use editor's scrollIntoView to bring the match into view
+      editor.commands.setTextSelection(from);
+      const domAtPos = editor.view.domAtPos(from);
+      if (domAtPos && domAtPos.node) {
+        const el = domAtPos.node.nodeType === 1 ? domAtPos.node : domAtPos.node.parentElement;
+        el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+    }
+  }
+
+  function doSearch(term: string): void {
+    const editor = getEditor();
+    if (!editor) return;
+    editor.commands.setSearchTerm(term);
+    // Force a transaction to trigger the plugin
+    editor.view.dispatch(editor.state.tr);
+    setTimeout(updateCount, 20);
   }
 
   function openSearch(): void {
     searchBar.classList.remove('hidden');
     input.focus();
     input.select();
+    if (input.value) doSearch(input.value);
   }
 
   function closeSearch(): void {
     searchBar.classList.add('hidden');
-    clearHighlights();
-    searchTerm = '';
+    doSearch('');
     input.value = '';
+    countEl.textContent = '';
   }
 
   // Debounce search while typing
@@ -1119,15 +1070,26 @@ function initSearch(): void {
   input.addEventListener('input', () => {
     if (searchTimer) clearTimeout(searchTimer);
     searchTimer = setTimeout(() => {
-      performSearch(input.value);
+      const editor = getEditor();
+      if (!editor) return;
+      editor.commands.resetIndex();
+      doSearch(input.value);
+      setTimeout(scrollToCurrentResult, 30);
     }, 150);
   });
 
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (e.shiftKey) goToMatch(-1);
-      else goToMatch(1);
+      const editor = getEditor();
+      if (!editor) return;
+      if (e.shiftKey) {
+        editor.commands.previousSearchResult();
+      } else {
+        editor.commands.nextSearchResult();
+      }
+      editor.view.dispatch(editor.state.tr);
+      setTimeout(() => { updateCount(); scrollToCurrentResult(); }, 20);
     }
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -1135,8 +1097,20 @@ function initSearch(): void {
     }
   });
 
-  prevBtn.addEventListener('click', () => goToMatch(-1));
-  nextBtn.addEventListener('click', () => goToMatch(1));
+  prevBtn.addEventListener('click', () => {
+    const editor = getEditor();
+    if (!editor) return;
+    editor.commands.previousSearchResult();
+    editor.view.dispatch(editor.state.tr);
+    setTimeout(() => { updateCount(); scrollToCurrentResult(); }, 20);
+  });
+  nextBtn.addEventListener('click', () => {
+    const editor = getEditor();
+    if (!editor) return;
+    editor.commands.nextSearchResult();
+    editor.view.dispatch(editor.state.tr);
+    setTimeout(() => { updateCount(); scrollToCurrentResult(); }, 20);
+  });
   closeBtn.addEventListener('click', closeSearch);
 
   // Global Cmd+F / Ctrl+F handler
