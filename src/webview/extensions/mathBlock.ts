@@ -125,6 +125,12 @@ export const MathBlock = Node.create<MathBlockOptions>({
         // Move cursor to end
         textarea.setSelectionRange(textarea.value.length, textarea.value.length);
 
+        // Prevent ProseMirror from intercepting keystrokes while editing
+        const stopPropagation = (ev: Event) => ev.stopPropagation();
+        textarea.addEventListener("keydown", stopPropagation);
+        textarea.addEventListener("keypress", stopPropagation);
+        textarea.addEventListener("input", stopPropagation);
+
         const finish = () => {
           const newLatex = textarea.value;
           if (typeof getPos === "function") {
@@ -141,7 +147,8 @@ export const MathBlock = Node.create<MathBlockOptions>({
         };
 
         textarea.addEventListener("blur", finish);
-        textarea.addEventListener("keydown", (ev) => {
+        textarea.addEventListener("keydown", (ev: KeyboardEvent) => {
+          ev.stopPropagation();
           // Cmd/Ctrl+Enter to confirm
           if ((ev.metaKey || ev.ctrlKey) && ev.key === "Enter") {
             ev.preventDefault();

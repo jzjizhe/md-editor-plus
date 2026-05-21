@@ -115,6 +115,12 @@ export const MathInline = Node.create<MathInlineOptions>({
         input.focus();
         input.select();
 
+        // Prevent ProseMirror from intercepting keystrokes while editing
+        const stopPropagation = (ev: Event) => ev.stopPropagation();
+        input.addEventListener("keydown", stopPropagation);
+        input.addEventListener("keypress", stopPropagation);
+        input.addEventListener("input", stopPropagation);
+
         const finish = () => {
           const newLatex = input.value.trim();
           if (typeof getPos === "function") {
@@ -143,7 +149,8 @@ export const MathInline = Node.create<MathInlineOptions>({
         };
 
         input.addEventListener("blur", finish);
-        input.addEventListener("keydown", (ev) => {
+        input.addEventListener("keydown", (ev: KeyboardEvent) => {
+          ev.stopPropagation();
           if (ev.key === "Enter") {
             ev.preventDefault();
             input.blur();
