@@ -25,6 +25,8 @@ import { createBubbleMenu } from './bubbleMenu';
 import { createBlockHandle } from './blockHandle';
 import { splitFrontmatter, frontmatterInfo } from './frontmatter';
 import { SearchAndReplace } from './extensions/searchAndReplace';
+import Mathematics from '@tiptap/extension-mathematics';
+import katexCss from './_katex-css';
 
 const lowlight = createLowlight(common);
 
@@ -93,6 +95,37 @@ export function createEditor(
     body = split.body;
   }
 
+  // Inject KaTeX CSS for math rendering
+  if (!document.getElementById('katex-css')) {
+    const style = document.createElement('style');
+    style.id = 'katex-css';
+    style.textContent = katexCss;
+    document.head.appendChild(style);
+  }
+
+  // Inject math editor styles
+  if (!document.getElementById('math-editor-css')) {
+    const mathStyle = document.createElement('style');
+    mathStyle.id = 'math-editor-css';
+    mathStyle.textContent = `
+      .Tiptap-mathematics-editor {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        background: var(--bg-secondary, rgba(0, 0, 0, 0.04));
+        border-radius: 3px;
+        padding: 0 2px;
+      }
+      .Tiptap-mathematics-render {
+        cursor: pointer;
+        padding: 0 2px;
+      }
+      .Tiptap-mathematics-render--editable:hover {
+        background: var(--bg-hover, rgba(35, 131, 226, 0.08));
+        border-radius: 3px;
+      }
+    `;
+    document.head.appendChild(mathStyle);
+  }
+
   _editor = new Editor({
     element,
     extensions: [
@@ -122,6 +155,10 @@ export function createEditor(
       SearchAndReplace.configure({
         searchResultClass: 'search-result',
         currentResultClass: 'search-result-current',
+      }),
+      Mathematics.configure({
+        regex: /\$\$([^\$]*)\$\$|\$([^\$]*)\$/gi,
+        katexOptions: { throwOnError: false, displayMode: false },
       }),
     ],
     editorProps: {

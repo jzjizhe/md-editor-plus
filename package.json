@@ -2,7 +2,7 @@
   "name": "md-editor-plus",
   "displayName": "MD Editor Plus (Remote)",
   "description": "Notion-style block editor for Markdown with Remote/Codelab live-reload support and Cmd+F search. Fork of aviranrevach/md-editor-plus.",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "publisher": "jzzhang",
   "license": "MIT",
   "author": {
@@ -95,10 +95,10 @@
             "auto"
           ],
           "enumDescriptions": [
-            "Light — Notion-style white",
-            "Sepia — warm paper",
-            "Claude — soft warm tones",
-            "Dark — deep neutrals",
+            "Light \u2014 Notion-style white",
+            "Sepia \u2014 warm paper",
+            "Claude \u2014 soft warm tones",
+            "Dark \u2014 deep neutrals",
             "Follow your operating system's light/dark mode",
             "Follow your editor's color theme",
             "(Legacy) Same as sync-ide"
@@ -237,6 +237,8 @@
     }
   },
   "dependencies": {
-    "@sereneinserenade/tiptap-search-and-replace": "^0.1.1"
+    "@sereneinserenade/tiptap-search-and-replace": "^0.1.1",
+    "@tiptap/extension-mathematics": "^2.27.2",
+    "katex": "^0.16.47"
   }
 }

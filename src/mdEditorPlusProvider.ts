@@ -415,6 +415,7 @@ export class MdEditorPlusProvider implements vscode.CustomTextEditorProvider {
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'none';
              style-src ${webview.cspSource} 'unsafe-inline';
+             font-src ${webview.cspSource} data:;
              script-src 'nonce-${nonce}';
              img-src ${webview.cspSource} data: https:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
