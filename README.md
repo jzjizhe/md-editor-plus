@@ -53,6 +53,32 @@ VS Code's built-in preview is great for reading. The default text editor is grea
 - **Frontmatter aware** — YAML (`---`) and TOML (`+++`) auto-detected, hidden from preview, preserved on save, with a badge to jump straight to Code view
 - **MDX-lite** — `.mdx` renders as Markdown; embedded JSX falls back to raw text or Code view
 
+### Math / LaTeX formulas
+
+- **Inline math** — `$E=mc^2$` renders inline via KaTeX; click the rendered formula to edit
+- **Block math** — `$$ \int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2} $$` renders centered in display mode; double-click to edit
+- **Multi-line block math** — fenced `$$` on separate lines with content in between also works:
+  ```
+  $$
+  \sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}
+  $$
+  ```
+- **Real-time conversion** — type `$$ formula $$` in a paragraph and it converts to a rendered block instantly (no file reopen needed)
+- **Backslash-safe** — `\frac`, `\sin`, `\left`, `\right`, etc. all survive the Markdown round-trip without being escaped
+- **Insert shortcut** — `⌘⇧M` (`Ctrl+Shift+M`) inserts a math block at the cursor
+
+### Search & Replace
+
+- **Find** — `⌘F` (`Ctrl+F`) opens a search bar with live highlighting of all matches
+- **Replace** — expand the search bar to reveal replace and replace-all controls
+- **Options** — toggle case-sensitive and regex matching from the search bar
+- **Navigation** — arrow buttons or `Enter` / `Shift+Enter` to jump between matches
+
+### Remote / Codelab live-reload
+
+- **Polling-based file watcher** — detects external file changes (e.g. from Remote SSH, Codelab, or other processes) and auto-refreshes the editor content
+- **No native fs.watch dependency** — works reliably on remote filesystems where inotify/FSEvents are unavailable
+
 ### Workflow & UX
 
 - **Code / Preview toggle** — switch between rendered blocks and raw Markdown without leaving the editor
@@ -255,14 +281,16 @@ YAML (`---`) and TOML (`+++`) frontmatter is **detected automatically** and hidd
 
 | Shortcut | Action |
 | --- | --- |
-| `⌘/`  /  `Ctrl+/` | Open the block picker at the cursor |
-| `⌘B`  /  `Ctrl+B` | Bold |
-| `⌘I`  /  `Ctrl+I` | Italic |
-| `⌘U`  /  `Ctrl+U` | Underline |
-| `⌘⇧X`  /  `Ctrl+Shift+X` | Strikethrough |
-| `⌘E`  /  `Ctrl+E` | Inline code |
-| `⌘K`  /  `Ctrl+K` | Insert link |
-| `Esc` | Close any open menu / popover |
+| `⌘/`  /  `Ctrl+/` | Open the block picker at the cursor |
+| `⌘B`  /  `Ctrl+B` | Bold |
+| `⌘I`  /  `Ctrl+I` | Italic |
+| `⌘U`  /  `Ctrl+U` | Underline |
+| `⌘⇧X`  /  `Ctrl+Shift+X` | Strikethrough |
+| `⌘E`  /  `Ctrl+E` | Inline code |
+| `⌘K`  /  `Ctrl+K` | Insert link |
+| `⌘F`  /  `Ctrl+F` | Open search bar (find & replace) |
+| `⌘⇧M`  /  `Ctrl+Shift+M` | Insert a math block |
+| `Esc` | Close any open menu / popover / search bar |
 
 The bubble menu shows the relevant shortcut next to each button.
 
