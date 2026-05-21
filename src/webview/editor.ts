@@ -26,6 +26,7 @@ import { createBlockHandle } from './blockHandle';
 import { splitFrontmatter, frontmatterInfo } from './frontmatter';
 import { SearchAndReplace } from './extensions/searchAndReplace';
 import Mathematics from '@tiptap/extension-mathematics';
+import { MathBlock } from './extensions/mathBlock';
 import katexCss from './_katex-css';
 
 const lowlight = createLowlight(common);
@@ -122,6 +123,49 @@ export function createEditor(
         background: var(--bg-hover, rgba(35, 131, 226, 0.08));
         border-radius: 3px;
       }
+      /* Block math node styles */
+      .math-block-node {
+        margin: 1em 0;
+        padding: 0.75em 1em;
+        background: var(--bg-secondary, rgba(0, 0, 0, 0.02));
+        border-radius: 6px;
+        cursor: pointer;
+        text-align: center;
+        position: relative;
+        border: 1px solid transparent;
+        transition: border-color 0.15s;
+      }
+      .math-block-node:hover {
+        border-color: var(--border-hover, rgba(35, 131, 226, 0.3));
+      }
+      .math-block-node.editing {
+        border-color: var(--border-active, rgba(35, 131, 226, 0.6));
+      }
+      .math-block-node .math-block-render {
+        overflow-x: auto;
+      }
+      .math-block-node .math-block-render .katex-display {
+        margin: 0;
+      }
+      .math-block-node .math-block-edit {
+        width: 100%;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 0.9em;
+        padding: 0.5em;
+        border: 1px solid var(--border-color, #ddd);
+        border-radius: 4px;
+        resize: vertical;
+        background: var(--bg-primary, #fff);
+        color: inherit;
+        outline: none;
+      }
+      .math-block-node .math-block-edit:focus {
+        border-color: var(--border-active, rgba(35, 131, 226, 0.6));
+      }
+      .math-block-node .math-error {
+        color: #e53e3e;
+        font-size: 0.85em;
+      }
     `;
     document.head.appendChild(mathStyle);
   }
@@ -157,9 +201,11 @@ export function createEditor(
         currentResultClass: 'search-result-current',
       }),
       Mathematics.configure({
-        regex: /\$\$([^\$]*)\$\$|\$([^\$]*)\$/gi,
+        // Only match single-dollar inline math $...$  (not block $$...$$)
+        regex: /(?<!\$)\$(?!\$)([^\$\n]+?)\$(?!\$)/g,
         katexOptions: { throwOnError: false, displayMode: false },
       }),
+      MathBlock,
     ],
     editorProps: {
       attributes: { spellcheck: 'true' },
