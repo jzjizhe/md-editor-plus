@@ -25,7 +25,7 @@ import { createBubbleMenu } from './bubbleMenu';
 import { createBlockHandle } from './blockHandle';
 import { splitFrontmatter, frontmatterInfo } from './frontmatter';
 import { SearchAndReplace } from './extensions/searchAndReplace';
-import Mathematics from '@tiptap/extension-mathematics';
+import { MathInline } from './extensions/mathInline';
 import { MathBlock } from './extensions/mathBlock';
 import katexCss from './_katex-css';
 
@@ -109,19 +109,30 @@ export function createEditor(
     const mathStyle = document.createElement('style');
     mathStyle.id = 'math-editor-css';
     mathStyle.textContent = `
-      .Tiptap-mathematics-editor {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-        background: var(--bg-secondary, rgba(0, 0, 0, 0.04));
-        border-radius: 3px;
-        padding: 0 2px;
-      }
-      .Tiptap-mathematics-render {
+      .math-inline-node {
         cursor: pointer;
         padding: 0 2px;
-      }
-      .Tiptap-mathematics-render--editable:hover {
-        background: var(--bg-hover, rgba(35, 131, 226, 0.08));
         border-radius: 3px;
+        transition: background 0.15s;
+      }
+      .math-inline-node:hover {
+        background: var(--bg-hover, rgba(35, 131, 226, 0.08));
+      }
+      .math-inline-node.editing {
+        background: var(--bg-secondary, rgba(0, 0, 0, 0.04));
+      }
+      .math-inline-node .math-inline-edit {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 0.9em;
+        border: 1px solid var(--border-color, #ddd);
+        border-radius: 3px;
+        padding: 1px 4px;
+        outline: none;
+        background: var(--bg-primary, #fff);
+        color: inherit;
+      }
+      .math-inline-node .math-inline-edit:focus {
+        border-color: var(--border-active, rgba(35, 131, 226, 0.6));
       }
       /* Block math node styles */
       .math-block-node {
@@ -200,11 +211,7 @@ export function createEditor(
         searchResultClass: 'search-result',
         currentResultClass: 'search-result-current',
       }),
-      Mathematics.configure({
-        // Only match single-dollar inline math $...$  (not block $$...$$)
-        regex: /(?<!\$)\$(?!\$)([^\$\n]+?)\$(?!\$)/g,
-        katexOptions: { throwOnError: false, displayMode: false },
-      }),
+      MathInline,
       MathBlock,
     ],
     editorProps: {

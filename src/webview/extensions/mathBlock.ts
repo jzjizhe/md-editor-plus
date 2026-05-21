@@ -4,6 +4,7 @@
 
 import { Node, mergeAttributes } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
 import katex from "katex";
 
 export interface MathBlockOptions {
@@ -157,6 +158,116 @@ export const MathBlock = Node.create<MathBlockOptions>({
       return { dom };
     };
   },
+
+  addInputRules() {
+    // Match $$ ... $$ on a single line (typed in a paragraph)
+    return [
+      {
+        // When user types $$ content $$ and presses space/enter at end
+        find: /^\$\$(.+)\$\$\s$/,
+        handler: ({ state, range, match }) => {
+          const latex = match[1].trim();
+          if (!latex) return;
+          const { tr } = state;
+          tr.replaceWith(range.from, range.to, this.type.create({ latex }));
+        },
+      },
+    ];
+  },
+
+  addCommands() {
+    return {
+      insertMathBlock:
+        (attrs?: { latex?: string }) =>
+        ({ commands }) => {
+          return commands.insertContent({
+            type: this.name,
+            attrs: { latex: attrs?.latex ?? "" },
+          });
+        },
+    };
+  },
+
+  addKeyboardShortcuts() {
+    return {
+      // Cmd/Ctrl+Shift+M to insert a math block
+      "Mod-Shift-m": () => {
+        // Insert an empty math block and immediately trigger editing
+        this.editor.commands.insertContent({
+          type: this.name,
+          attrs: { latex: "E = mc^2" },
+        });
+        return true;
+      },
+    };
+  },
+
+  addProseMirrorPlugins() {
+    const mathBlockType = this.type;
+    return [
+      new Plugin({
+        key: new PluginKey("mathBlockAutoConvert"),
+        appendTransaction(transactions, _oldState, newState) {
+          // Only check when doc actually changed
+          if (!transactions.some((t) => t.docChanged)) return null;
+
+          const { doc } = newState;
+          let tr = newState.tr;
+          let modified = false;
+
+          // Scan for paragraph sequences that form $$...$$
+          doc.forEach((node, offset, index) => {
+            if (modified) return; // one conversion per transaction to avoid position drift
+            if (node.type.name !== "paragraph") return;
+            const text = node.textContent.trim();
+
+            // Case 1: Single paragraph like "$$ E=mc^2 $$"
+            if (text.startsWith("$$") && text.endsWith("$$") && text.length > 4) {
+              const latex = text.slice(2, -2).trim();
+              if (!latex) return;
+              const from = offset;
+              const to = offset + node.nodeSize;
+              tr = tr.replaceWith(from, to, mathBlockType.create({ latex }));
+              modified = true;
+              return;
+            }
+
+            // Case 2: Multi-paragraph pattern: para("$$") + content paras + para("$$")
+            if (text === "$$") {
+              // Look ahead for closing $$
+              const startIdx = index;
+              let endIdx = -1;
+              const contentParts: string[] = [];
+              let searchOffset = offset + node.nodeSize;
+
+              for (let i = index + 1; i < doc.childCount; i++) {
+                const child = doc.child(i);
+                const childText = child.textContent.trim();
+                if (child.type.name === "paragraph" && childText === "$$") {
+                  endIdx = i;
+                  break;
+                }
+                // Collect content
+                contentParts.push(child.textContent);
+                searchOffset += child.nodeSize;
+              }
+
+              if (endIdx > startIdx + 1) {
+                const latex = contentParts.join("\n").trim();
+                if (!latex) return;
+                const from = offset;
+                const to = searchOffset + doc.child(endIdx).nodeSize;
+                tr = tr.replaceWith(from, to, mathBlockType.create({ latex }));
+                modified = true;
+              }
+            }
+          });
+
+          return modified ? tr : null;
+        },
+      }),
+    ];
+  },
 });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -189,11 +300,20 @@ function mathBlockRule(state: any, startLine: number, endLine: number, silent: b
     return false;
   }
 
-  // Check if it's a single-line $$ ... $$ (skip — let inline handle it)
+  // Check content after opening $$
   const firstLineContent = state.src.slice(startPos + 2, maxPos).trim();
-  if (firstLineContent.endsWith("$$")) {
-    // Single line like $$ E=mc^2 $$ — skip, let inline Mathematics handle it
-    return false;
+
+  // Single-line: $$ E=mc^2 $$
+  if (firstLineContent.endsWith("$$") && firstLineContent.length > 2) {
+    if (silent) return true;
+    const latex = firstLineContent.slice(0, -2).trim();
+    if (!latex) return false;
+    const token = state.push("math_block_custom", "div", 0);
+    token.content = latex;
+    token.map = [startLine, startLine + 1];
+    token.block = true;
+    state.line = startLine + 1;
+    return true;
   }
 
   // Silent mode — just checking if rule matches
